@@ -2,7 +2,12 @@
 #include <algorithm>
 #include <iostream>
 #include <string_view>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <cerrno>
+#include <cstdio>
 
+#include "process.hpp"
 #include "version.hpp"
 
 namespace
@@ -139,6 +144,17 @@ int main(int argc, char *argv[])
         }
 
         return handleList();
+    }
+
+    // Run command in sandbox
+    if (command == "run")
+    {
+        if (argc < 4 || std::string_view(argv[2]) != "--")
+        {
+            return error("Usage: abox run -- <program> [args...]");
+        }
+
+        return abox::process::handleRun(argv + 3);
     }
 
     return error("Unknown command: " + std::string(command));
