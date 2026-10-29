@@ -13,6 +13,8 @@ configure_file(
 add_executable(abox 
     src/main.cpp
     src/process.cpp
+    src/cgroup.cpp
+    src/cgroup.hpp
 )
 
 target_include_directories(abox PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")

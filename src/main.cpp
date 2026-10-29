@@ -1,161 +1,148 @@
-
-#include <algorithm>
-#include <iostream>
-#include <string_view>
-#include <unistd.h>
-#include <sys/wait.h>
-#include <cerrno>
-#include <cstdio>
-
 #include "process.hpp"
 #include "version.hpp"
+#include <charconv>
+#include <cmath>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <optional>
+#include <string>
+#include <algorithm>
+#include <string_view>
 
+std::optional<double> parseCpu(std::string_view text)
+{
+    double value{};
+    auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (ec != std::errc{} || end != text.data() + text.size() ||
+        !std::isfinite(value) || value < 0.01 || value > 1024)
+        return std::nullopt;
+    return value;
+}
+std::optional<std::uint64_t> parseMemory(std::string_view text)
+{
+    if (text.size() < 2)
+        return std::nullopt;
+    const char suffix = text.back();
+    const std::uint64_t factor = suffix == 'M' ? (1ULL << 20) : suffix == 'G' ? (1ULL << 30)
+                                                                              : 0;
+    if (factor == 0)
+        return std::nullopt;
+    std::uint64_t value{};
+    auto number = text.substr(0, text.size() - 1);
+    auto [end, ec] = std::from_chars(number.data(), number.data() + number.size(), value);
+    if (ec != std::errc{} || end != number.data() + number.size() ||
+        value == 0 || value > std::numeric_limits<std::uint64_t>::max() / factor)
+        return std::nullopt;
+    return value * factor;
+}
 namespace
 {
-
-    using std::string_view;
-
-    // Return codes
-    constexpr int SUCCESS = 0;
-    constexpr int FAILURE = 1;
-
-    // Display CLI help
     void printHelp()
     {
-        std::cout
-            << "ABox - Lightweight Linux Sandbox Manager\n\n"
-            << "Usage:\n"
-            << "  abox <command> [arguments]\n\n"
-            << "Commands:\n"
-            << "  create <name>    Create a sandbox\n"
-            << "  list             List existing sandboxes\n"
-            << "  --help, -h       Show this help message\n"
-            << "  --version, -v    Show ABox version\n";
+        std::cout << "ABox - Linux sandbox manager\n"
+                     "Usage:\n"
+                     "  abox --help\n"
+                     "  abox --version\n"
+                     "  abox create <name>\n"
+                     "  abox list\n"
+                     "  abox run [--cpus 0.5] [--memory 256M|1G] -- <program> [args...]\n";
     }
 
-    // Print error and return failure
-    int error(string_view message)
+    bool validName(std::string_view name)
     {
-        std::cerr << "abox: " << message << '\n'
-                  << "Try 'abox --help' for usage.\n";
-        return FAILURE;
+        return !name.empty() &&
+               std::all_of(name.begin(), name.end(), [](char c)
+                           { return (c >= 'a' && c <= 'z') ||
+                                    (c >= 'A' && c <= 'Z') ||
+                                    (c >= '0' && c <= '9'); });
     }
-
-    // Validate sandbox names (ASCII alphanumeric)
-    bool isValidName(string_view name)
-    {
-        if (name.empty())
-        {
-            return false;
-        }
-
-        return std::all_of(
-            name.begin(),
-            name.end(),
-            [](char c)
-            {
-                return (c >= 'a' && c <= 'z') ||
-                       (c >= 'A' && c <= 'Z') ||
-                       (c >= '0' && c <= '9');
-            });
-    }
-
-    // Command handlers
-    int handleCreate(string_view name)
-    {
-        if (!isValidName(name))
-        {
-            return error(
-                "Sandbox name must be non-empty and alphanumeric.");
-        }
-
-        // TODO: Implement actual sandbox creation
-        std::cout << "Sandbox name validated: " << name << '\n';
-
-        return SUCCESS;
-    }
-
-    int handleList()
-    {
-        // TODO: Implement sandbox listing
-        std::cout << "Sandbox listing not implemented yet.\n";
-        return SUCCESS;
-    }
-
 } // namespace
 
 int main(int argc, char *argv[])
 {
-
-    // No command provided
     if (argc == 1)
     {
         printHelp();
-        return SUCCESS;
+        return 0;
     }
-
-    const string_view command = argv[1];
-
-    // Global flags
+    const std::string_view command = argv[1];
     if (command == "--help" || command == "-h")
     {
         if (argc != 2)
-        {
-            return error("Unexpected arguments after --help.");
-        }
-
+            return 1;
         printHelp();
-        return SUCCESS;
+        return 0;
     }
-
     if (command == "--version" || command == "-v")
     {
         if (argc != 2)
-        {
-            return error("Unexpected arguments after --version.");
-        }
-
+            return 1;
         std::cout << "abox " << PROGRAM_VERSION_STRING << '\n';
-        return SUCCESS;
+        return 0;
     }
-
-    // Create sandbox
     if (command == "create")
     {
-        if (argc < 3)
+        if (argc != 3 || !validName(argv[2]))
         {
-            return error("Missing sandbox name.");
+            std::cerr << "abox: usage: abox create <alphanumeric-name>\n";
+            return 1;
         }
-
-        if (argc > 3)
-        {
-            return error("Too many arguments for 'create'.");
-        }
-
-        return handleCreate(argv[2]);
+        std::cout << "Sandbox name validated: " << argv[2]
+                  << " (creation not implemented yet)\n";
+        return 0;
     }
-
-    // List sandboxes
     if (command == "list")
     {
         if (argc != 2)
-        {
-            return error("'list' does not accept arguments.");
-        }
-
-        return handleList();
+            return 1;
+        std::cout << "Sandbox listing not implemented yet.\n";
+        return 0;
     }
-
-    // Run command in sandbox
-    if (command == "run")
+    if (command != "run")
     {
-        if (argc < 4 || std::string_view(argv[2]) != "--")
-        {
-            return error("Usage: abox run -- <program> [args...]");
-        }
-
-        return abox::process::handleRun(argv + 3);
+        std::cerr << "abox: unknown command: " << command << '\n';
+        return 1;
     }
 
-    return error("Unknown command: " + std::string(command));
+    abox::cgroup::ResourceLimits limits;
+    int i = 2;
+    while (i < argc && std::string_view(argv[i]) != "--")
+    {
+        const std::string_view flag = argv[i++];
+        if (i >= argc)
+        {
+            std::cerr << "abox: missing value for " << flag << '\n';
+            return 1;
+        }
+        if (flag == "--cpus")
+        {
+            limits.cpu_cores = parseCpu(argv[i++]);
+            if (!limits.cpu_cores)
+            {
+                std::cerr << "abox: invalid --cpus (minimum 0.01)\n";
+                return 1;
+            }
+        }
+        else if (flag == "--memory")
+        {
+            limits.memory_bytes = parseMemory(argv[i++]);
+            if (!limits.memory_bytes)
+            {
+                std::cerr << "abox: invalid --memory value\n";
+                return 1;
+            }
+        }
+        else
+        {
+            std::cerr << "abox: unknown option " << flag << '\n';
+            return 1;
+        }
+    }
+    if (i >= argc || std::string_view(argv[i]) != "--" || i + 1 >= argc)
+    {
+        std::cerr << "abox: expected -- <program> [args...]\n";
+        return 1;
+    }
+    return abox::process::handleRun(argv + i + 1, limits);
 }
