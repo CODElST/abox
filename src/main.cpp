@@ -1,4 +1,5 @@
 #include "process.hpp"
+#include "cgroup.hpp"
 #include "version.hpp"
 #include <charconv>
 #include <cmath>
@@ -46,7 +47,7 @@ namespace
                      "  abox --version\n"
                      "  abox create <name>\n"
                      "  abox list\n"
-                     "  abox run [--cpus 0.5] [--memory 256M|1G] -- <program> [args...]\n";
+                     "  abox run [--cpus 0.5] [--memory 256M|1G] [--stats] -- <program> [args...]\n";
     }
 
     bool validName(std::string_view name)
@@ -106,11 +107,22 @@ int main(int argc, char *argv[])
     }
 
     abox::cgroup::ResourceLimits limits;
+    bool show_stats = false;
     int i = 2;
     while (i < argc && std::string_view(argv[i]) != "--")
     {
         const std::string_view flag = argv[i++];
-        if (i >= argc)
+        if (flag == "--stats")
+        {
+            show_stats = true;
+            continue;
+        }
+        if (flag != "--cpus" && flag != "--memory")
+        {
+            std::cerr << "abox: unknown option " << flag << '\n';
+            return 1;
+        }
+        if (i >= argc || std::string_view(argv[i]) == "--")
         {
             std::cerr << "abox: missing value for " << flag << '\n';
             return 1;
@@ -133,16 +145,11 @@ int main(int argc, char *argv[])
                 return 1;
             }
         }
-        else
-        {
-            std::cerr << "abox: unknown option " << flag << '\n';
-            return 1;
-        }
     }
     if (i >= argc || std::string_view(argv[i]) != "--" || i + 1 >= argc)
     {
         std::cerr << "abox: expected -- <program> [args...]\n";
         return 1;
     }
-    return abox::process::handleRun(argv + i + 1, limits);
+    return abox::process::handleRun(argv + i + 1, limits, show_stats);
 }

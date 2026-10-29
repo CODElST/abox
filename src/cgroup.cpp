@@ -4,16 +4,71 @@
 #include <cmath>
 #include <cstdio>
 #include <fcntl.h>
+#include <fstream>
 #include <iostream>
+#include <string>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <unordered_map>
 #include <utility>
 
 namespace abox::cgroup
 {
 
-    CgroupManager::CgroupManager(std::string name)
-        : path_("/sys/fs/cgroup/abox/" + std::move(name)) {}
+    namespace
+    {
+        using Counters = std::unordered_map<std::string, std::uint64_t>;
+
+        std::optional<Counters> readCounters(const std::string &path)
+        {
+            std::ifstream file(path);
+            if (!file)
+            {
+                std::cerr << "abox: cannot open " << path << '\n';
+                return std::nullopt;
+            }
+
+            Counters counters;
+            std::string key;
+            std::uint64_t value;
+            while (file >> key >> value)
+            {
+                counters[key] = value;
+            }
+            if (!file.eof())
+            {
+                std::cerr << "abox: invalid counter data in " << path << '\n';
+                return std::nullopt;
+            }
+            return counters;
+        }
+
+        std::optional<std::uint64_t> lookup(const Counters &counters,
+                                            const std::string &key)
+        {
+            const auto it = counters.find(key);
+            if (it == counters.end())
+                return std::nullopt;
+            return it->second;
+        }
+
+        std::optional<std::uint64_t> readNumber(const std::string &path)
+        {
+            std::ifstream file(path);
+            if (!file)
+                return std::nullopt; // May be unavailable on older kernels.
+            std::uint64_t value{};
+            if (!(file >> value))
+            {
+                std::cerr << "abox: invalid number in " << path << '\n';
+                return std::nullopt;
+            }
+            return value;
+        }
+    } // namespace
+
+    CgroupManager::CgroupManager(std::string name, std::string base_path)
+        : path_(std::move(base_path) + "/" + std::move(name)) {}
 
     bool CgroupManager::create()
     {
@@ -91,6 +146,30 @@ namespace abox::cgroup
     bool CgroupManager::attachProcess(pid_t pid) const
     {
         return writeControl("cgroup.procs", std::to_string(pid));
+    }
+
+    std::optional<CgroupStats> CgroupManager::readStats() const
+    {
+        const auto cpu = readCounters(path_ + "/cpu.stat");
+        const auto memory_events = readCounters(path_ + "/memory.events");
+        if (!cpu || !memory_events)
+            return std::nullopt;
+
+        CgroupStats stats;
+        stats.cpu_usage_usec = lookup(*cpu, "usage_usec");
+        if (!stats.cpu_usage_usec)
+        {
+            std::cerr << "abox: cpu.stat missing usage_usec\n";
+            return std::nullopt;
+        }
+        stats.cpu_throttling_events = lookup(*cpu, "nr_throttled");
+        stats.cpu_throttled_usec = lookup(*cpu, "throttled_usec");
+        stats.memory_peak_bytes = readNumber(path_ + "/memory.peak");
+        stats.memory_current_bytes = readNumber(path_ + "/memory.current");
+        stats.memory_max_events = lookup(*memory_events, "max");
+        stats.memory_oom_events = lookup(*memory_events, "oom");
+        stats.memory_oom_kills = lookup(*memory_events, "oom_kill");
+        return stats;
     }
 
     bool CgroupManager::remove()

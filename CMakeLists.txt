@@ -18,3 +18,11 @@ add_executable(abox
 )
 
 target_include_directories(abox PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
+enable_testing()
+add_executable(stats_test 
+    tests/stats_test.cpp 
+    src/cgroup.cpp)
+    
+target_include_directories(stats_test PRIVATE src)
+add_test(NAME cgroup_stats COMMAND stats_test)

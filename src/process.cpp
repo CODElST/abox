@@ -1,38 +1,89 @@
 #include "process.hpp"
 
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
+#include <iomanip>
 #include <iostream>
+#include <optional>
 #include <sys/wait.h>
 #include <unistd.h>
 
 namespace abox::process
 {
-
-    static bool waitForChild(pid_t pid, int &status)
+    namespace
     {
-        pid_t result;
-        do
-        {
-            result = ::waitpid(pid, &status, 0);
-        } while (result == -1 && errno == EINTR);
 
-        if (result == -1)
+        bool waitForChild(pid_t pid, int &status)
         {
-            std::perror("abox: waitpid");
-            return false;
+            pid_t result;
+            do
+            {
+                result = ::waitpid(pid, &status, 0);
+            } while (result == -1 && errno == EINTR);
+
+            if (result == -1)
+            {
+                std::perror("abox: waitpid");
+                return false;
+            }
+            return true;
         }
-        return true;
-    }
 
-    int handleRun(char *const args[], const abox::cgroup::ResourceLimits &limits)
+        void printStats(const abox::cgroup::CgroupStats &s, double seconds,
+                        int exit_code)
+        {
+            const auto old_flags = std::cout.flags();
+            const auto old_precision = std::cout.precision();
+            std::cout << "\nABox Execution Summary\n"
+                      << "-----------------------------\n"
+                      << "Exit status:       " << exit_code << '\n'
+                      << std::fixed << std::setprecision(3)
+                      << "Elapsed time:      " << seconds << " s\n";
+
+            if (s.cpu_usage_usec)
+            {
+                const double cpu_seconds = *s.cpu_usage_usec / 1'000'000.0;
+                std::cout << "CPU time:          " << cpu_seconds << " s\n";
+                if (seconds > 0)
+                {
+                    std::cout << "Average CPU cores: " << cpu_seconds / seconds << '\n';
+                }
+            }
+            if (s.cpu_throttling_events)
+                std::cout << "CPU throttle count: " << *s.cpu_throttling_events << '\n';
+            if (s.cpu_throttled_usec)
+                std::cout << "CPU throttled time: "
+                          << (*s.cpu_throttled_usec / 1'000'000.0) << " s\n";
+            if (s.memory_peak_bytes)
+                std::cout << "Peak memory:       "
+                          << (*s.memory_peak_bytes / (1024.0 * 1024.0)) << " MiB\n";
+            if (s.memory_current_bytes)
+                std::cout << "Memory after exit: "
+                          << (*s.memory_current_bytes / (1024.0 * 1024.0)) << " MiB\n";
+            if (s.memory_max_events)
+                std::cout << "Memory max events: " << *s.memory_max_events << '\n';
+            if (s.memory_oom_events)
+                std::cout << "OOM events:        " << *s.memory_oom_events << '\n';
+            if (s.memory_oom_kills)
+                std::cout << "OOM kills:         " << *s.memory_oom_kills << '\n';
+
+            std::cout << "-----------------------------\n";
+            std::cout.flags(old_flags);
+            std::cout.precision(old_precision);
+        }
+
+    } // namespace
+
+    int handleRun(char *const args[], const abox::cgroup::ResourceLimits &limits,
+                  bool show_stats)
     {
         if (!args || !args[0])
         {
             std::cerr << "abox: missing executable\n";
             return 1;
         }
-        std::cout << "Child PID: " << getpid() << std::endl;
+
         abox::cgroup::CgroupManager group("run-" + std::to_string(::getpid()));
         if (!group.create())
             return 1;
@@ -91,6 +142,7 @@ namespace abox::process
         }
 
         const char go = 'R';
+        const auto start = std::chrono::steady_clock::now();
         const ssize_t sent = ::write(ready[1], &go, 1);
         ::close(ready[1]);
         if (sent != 1)
@@ -106,16 +158,35 @@ namespace abox::process
         int status = 0;
         if (!waitForChild(pid, status))
             return 1;
+        const auto end = std::chrono::steady_clock::now();
+
+        int exit_code = 1;
+        if (WIFEXITED(status))
+            exit_code = WEXITSTATUS(status);
+        else if (WIFSIGNALED(status))
+            exit_code = 128 + WTERMSIG(status);
+
+        // Read before rmdir() destroys the virtual counter files.
+        std::optional<abox::cgroup::CgroupStats> stats;
+        if (show_stats)
+            stats = group.readStats();
 
         const bool cleaned = group.remove();
+        if (show_stats)
+        {
+            if (stats)
+            {
+                const std::chrono::duration<double> elapsed = end - start;
+                printStats(*stats, elapsed.count(), exit_code);
+            }
+            else
+            {
+                std::cerr << "abox: statistics unavailable\n";
+            }
+        }
         if (!cleaned)
             return 1;
-
-        if (WIFEXITED(status))
-            return WEXITSTATUS(status);
-        if (WIFSIGNALED(status))
-            return 128 + WTERMSIG(status);
-        return 1;
+        return exit_code;
     }
 
 } // namespace abox::process
