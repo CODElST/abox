@@ -19,7 +19,8 @@ add_executable(abox
     src/namespace.hpp
 )
 
-add_executable(aboxd src/daemon.cpp)
+add_executable(aboxd src/daemon.cpp src/cgroup.cpp src/cgroup.hpp)
+target_include_directories(aboxd PRIVATE src)
 
 target_include_directories(abox PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
@@ -41,6 +42,13 @@ add_executable(namespace_acceptance_test tests/namespace_acceptance.cpp)
 target_compile_features(namespace_acceptance_test PRIVATE cxx_std_20)
 add_executable(cli_acceptance_test tests/cli_acceptance.cpp)
 target_compile_features(cli_acceptance_test PRIVATE cxx_std_20)
+add_executable(daemon_acceptance_test tests/daemon_acceptance.cpp)
+target_compile_features(daemon_acceptance_test PRIVATE cxx_std_20)
+add_test(NAME daemon_lifecycle_acceptance
+    COMMAND daemon_acceptance_test $<TARGET_FILE:aboxd> $<TARGET_FILE:abox>)
+set_tests_properties(daemon_lifecycle_acceptance PROPERTIES
+    LABELS "phase4;unprivileged"
+    SKIP_RETURN_CODE 77)
 foreach(cli_case help version invalid missing bad_option)
     add_test(NAME cli_${cli_case}
         COMMAND cli_acceptance_test $<TARGET_FILE:abox> ${cli_case})

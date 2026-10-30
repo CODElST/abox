@@ -90,6 +90,11 @@ namespace abox::cgroup
         return true;
     }
 
+    bool CgroupManager::exists() const
+    {
+        return ::access(path_.c_str(), F_OK) == 0;
+    }
+
     bool CgroupManager::writeControl(const std::string &filename,
                                      const std::string &value) const
     {
@@ -183,7 +188,7 @@ namespace abox::cgroup
 
     bool CgroupManager::remove()
     {
-        if (!created_)
+        if (!created_ && ::access(path_.c_str(), F_OK) == -1)
             return true;
         if (::rmdir(path_.c_str()) == -1)
         {

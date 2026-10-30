@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <optional>
@@ -45,7 +46,10 @@ namespace
 {
     std::optional<std::string> daemonRequest(int argc, char *argv[])
     {
-        const std::string socket = "/tmp/aboxd-" + std::to_string(::getuid()) + ".sock";
+        const char *configured = std::getenv("ABOX_SOCKET");
+        const std::string socket = configured && *configured
+                                       ? configured
+                                       : "/tmp/aboxd-" + std::to_string(::getuid()) + ".sock";
         const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if (fd == -1) return std::nullopt;
         sockaddr_un address{};

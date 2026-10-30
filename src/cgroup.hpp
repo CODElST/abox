@@ -35,6 +35,7 @@ namespace abox::cgroup
                                std::string base_path = "/sys/fs/cgroup/abox");
 
         bool create();
+        bool exists() const;
         bool configure(const ResourceLimits &limits) const;
         bool attachProcess(pid_t pid) const;
         std::optional<CgroupStats> readStats() const;
