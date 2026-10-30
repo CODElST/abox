@@ -1,0 +1,8 @@
+Architecture: amd64
+Description: Linux-native experimental sandbox runtime
+Maintainer: ABox maintainers
+Package: abox
+Priority: optional
+Section: devel
+Version: 0.1.0
+Installed-Size: 2036

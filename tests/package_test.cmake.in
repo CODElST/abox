@@ -1,0 +1,70 @@
+set(output_dir "@CMAKE_CURRENT_BINARY_DIR@/package-test")
+set(package_prefix "@CMAKE_INSTALL_PREFIX@")
+string(REGEX REPLACE "^/" "" package_prefix "${package_prefix}")
+file(REMOVE_RECURSE "${output_dir}")
+file(MAKE_DIRECTORY "${output_dir}")
+
+execute_process(
+    COMMAND "@CMAKE_CPACK_COMMAND@" --config "@CMAKE_BINARY_DIR@/CPackConfig.cmake"
+            -G DEB -B "${output_dir}"
+    RESULT_VARIABLE package_result
+    OUTPUT_VARIABLE package_output
+    ERROR_VARIABLE package_error)
+if(NOT package_result EQUAL 0)
+    message(FATAL_ERROR "DEB package generation failed: ${package_output}${package_error}")
+endif()
+file(GLOB deb_files "${output_dir}/*.deb")
+list(LENGTH deb_files deb_count)
+if(NOT deb_count EQUAL 1)
+    message(FATAL_ERROR "expected one DEB package, found ${deb_count}")
+endif()
+
+execute_process(
+    COMMAND dpkg-deb --info "${deb_files}"
+    RESULT_VARIABLE info_result
+    OUTPUT_VARIABLE info_output
+    ERROR_VARIABLE info_error)
+if(NOT info_result EQUAL 0)
+    message(FATAL_ERROR "dpkg-deb --info failed: ${info_error}")
+endif()
+execute_process(
+    COMMAND dpkg-deb --contents "${deb_files}"
+    RESULT_VARIABLE contents_result
+    OUTPUT_VARIABLE contents_output
+    ERROR_VARIABLE contents_error)
+if(NOT contents_result EQUAL 0 OR
+   NOT contents_output MATCHES "${package_prefix}/bin/abox" OR
+   NOT contents_output MATCHES "${package_prefix}/bin/aboxd" OR
+   NOT contents_output MATCHES "etc/abox/abox.conf")
+    message(FATAL_ERROR "package contents are invalid: ${contents_output}${contents_error}")
+endif()
+
+set(tgz_dir "${output_dir}/tgz")
+file(MAKE_DIRECTORY "${tgz_dir}")
+execute_process(
+    COMMAND "@CMAKE_CPACK_COMMAND@" --config "@CMAKE_BINARY_DIR@/CPackConfig.cmake"
+            -G TGZ -B "${tgz_dir}"
+    RESULT_VARIABLE tgz_result
+    OUTPUT_VARIABLE tgz_output
+    ERROR_VARIABLE tgz_error)
+if(NOT tgz_result EQUAL 0)
+    message(FATAL_ERROR "TGZ package generation failed: ${tgz_output}${tgz_error}")
+endif()
+file(GLOB tgz_files "${tgz_dir}/*.tar.gz")
+list(LENGTH tgz_files tgz_count)
+if(NOT tgz_count EQUAL 1)
+    message(FATAL_ERROR "expected one TGZ package, found ${tgz_count}")
+endif()
+execute_process(
+    COMMAND "@CMAKE_COMMAND@" -E tar tf "${tgz_files}"
+    RESULT_VARIABLE tar_result
+    OUTPUT_VARIABLE tar_output
+    ERROR_VARIABLE tar_error)
+if(NOT tar_result EQUAL 0 OR
+   NOT tar_output MATCHES "etc/abox/abox.conf" OR
+   NOT tar_output MATCHES "bin/abox" OR
+   NOT tar_output MATCHES "bin/aboxd")
+    message(FATAL_ERROR "TGZ contents are invalid: ${tar_output}${tar_error}")
+endif()
+
+file(REMOVE_RECURSE "${output_dir}")

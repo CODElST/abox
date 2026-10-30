@@ -1,0 +1,44 @@
+set(stage "@CMAKE_CURRENT_BINARY_DIR@/install-test")
+file(REMOVE_RECURSE "${stage}")
+
+execute_process(
+    COMMAND "@CMAKE_COMMAND@" -E env "DESTDIR=${stage}"
+            "@CMAKE_COMMAND@" --install "@CMAKE_BINARY_DIR@" --prefix /usr
+    RESULT_VARIABLE install_result
+    OUTPUT_VARIABLE install_output
+    ERROR_VARIABLE install_error)
+if(NOT install_result EQUAL 0)
+    message(FATAL_ERROR "staged install failed: ${install_output}${install_error}")
+endif()
+
+foreach(binary abox aboxd)
+    if(NOT EXISTS "${stage}/usr/bin/${binary}")
+        message(FATAL_ERROR "staged install is missing /usr/bin/${binary}")
+    endif()
+endforeach()
+if(NOT EXISTS "${stage}/etc/abox/abox.conf")
+    message(FATAL_ERROR "staged install is missing /etc/abox/abox.conf")
+endif()
+
+execute_process(
+    COMMAND "${stage}/usr/bin/abox" --version
+    RESULT_VARIABLE version_result
+    OUTPUT_VARIABLE version_output
+    ERROR_VARIABLE version_error)
+if(NOT version_result EQUAL 0)
+    message(FATAL_ERROR "installed abox --version failed: ${version_error}")
+endif()
+if(NOT version_output MATCHES "abox 0\\.1\\.0")
+    message(FATAL_ERROR "unexpected installed version output: ${version_output}")
+endif()
+
+execute_process(
+    COMMAND "${stage}/usr/bin/abox" --help
+    RESULT_VARIABLE help_result
+    OUTPUT_VARIABLE help_output
+    ERROR_VARIABLE help_error)
+if(NOT help_result EQUAL 0 OR NOT help_output MATCHES "Usage:")
+    message(FATAL_ERROR "installed abox --help failed: ${help_error}")
+endif()
+
+file(REMOVE_RECURSE "${stage}")

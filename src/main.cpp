@@ -1,5 +1,7 @@
 #include "process.hpp"
 #include "cgroup.hpp"
+#include "config.hpp"
+#include "setup.hpp"
 #include "version.hpp"
 #include <charconv>
 #include <cstdio>
@@ -119,6 +121,33 @@ int main(int argc, char *argv[])
         std::cout << "abox " << PROGRAM_VERSION_STRING << '\n';
         return 0;
     }
+    if (command == "setup")
+    {
+        abox::setup::Options options;
+        for (int option = 2; option < argc; ++option)
+        {
+            const std::string_view value = argv[option];
+            if (value == "--dry-run")
+                options.dry_run = true;
+            else if (value == "--rootfs" && option + 1 < argc)
+                options.rootfs = argv[++option];
+            else
+            {
+                std::cerr << "abox: usage: abox setup [--dry-run] [--rootfs DIR]\n";
+                return 1;
+            }
+        }
+        const auto result = abox::setup::run(options);
+        for (const auto &diagnostic : result.diagnostics)
+            std::cout << diagnostic << '\n';
+        if (!result.success)
+        {
+            std::cerr << "abox: setup: " << result.error << '\n';
+            return 1;
+        }
+        std::cout << (options.dry_run ? "setup plan completed\n" : "setup completed\n");
+        return 0;
+    }
     if (command == "create" || command == "list" || command == "start" ||
         command == "stop" || command == "delete" || command == "exec")
     {
@@ -152,6 +181,7 @@ int main(int argc, char *argv[])
     abox::cgroup::ResourceLimits limits;
     abox::isolation::NamespaceConfig namespaces;
     bool show_stats = false;
+    bool isolate_requested = false;
     int i = 2;
     while (i < argc && std::string_view(argv[i]) != "--")
     {
@@ -164,6 +194,7 @@ int main(int argc, char *argv[])
         if (flag == "--isolate")
         {
             namespaces.pid = namespaces.mount = namespaces.uts = namespaces.user = namespaces.ipc = true;
+            isolate_requested = true;
             continue;
         }
         if (flag == "--uts") { namespaces.uts = true; continue; }
@@ -216,5 +247,19 @@ int main(int argc, char *argv[])
         std::cerr << "abox: expected -- <program> [args...]\n";
         return 1;
     }
+
+    std::optional<std::string> environment_rootfs;
+    if (const char *value = std::getenv("ABOX_ROOTFS"); value && *value)
+        environment_rootfs = value;
+    const auto rootfs = abox::config::resolveRootfs(
+        namespaces.rootfs, isolate_requested, environment_rootfs);
+    if (!rootfs)
+    {
+        std::cerr << "abox: " << rootfs.error << '\n';
+        return 1;
+    }
+    if (rootfs.enabled)
+        namespaces.rootfs = rootfs.path;
+
     return abox::process::handleRun(argv + i + 1, limits, show_stats, namespaces);
 }

@@ -17,6 +17,7 @@ The project has two execution paths:
 - [Features](#features)
 - [Requirements](#requirements)
 - [Build and test](#build-and-test)
+- [Installation and setup](#installation-and-setup)
 - [Quick start: one-shot execution](#quick-start-one-shot-execution)
 - [Quick start: daemon-managed workloads](#quick-start-daemon-managed-workloads)
 - [Architecture](#architecture)
@@ -106,6 +107,45 @@ Confirm that the CLI works:
 ./build/abox --help
 ./build/abox --version
 ```
+
+## Installation and setup
+
+Install using standard CMake prefix rules:
+
+```bash
+cmake -S . -B build-release \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr
+cmake --build build-release -j
+DESTDIR="$PWD/stage" cmake --install build-release
+```
+
+For Debian and TGZ packages, see [PACKAGING.md](PACKAGING.md). Packages
+install `abox`, `aboxd`, a configuration template, and documentation. They do
+not contain a root filesystem or run setup operations.
+
+After reviewing the plan, provision the default Ubuntu rootfs explicitly:
+
+```bash
+sudo abox setup --dry-run
+sudo abox setup
+```
+
+Setup is idempotent and preserves an existing valid rootfs. It refuses to
+overwrite an existing non-empty incomplete rootfs. Use `--rootfs DIR` to
+select another target. Provisioning requires Ubuntu, `debootstrap`, cgroup v2,
+network access as needed by debootstrap, and root privileges. Setup does not
+modify systemd-owned cgroups or enable/start a systemd service.
+
+When `--isolate` is used without `--rootfs`, rootfs resolution is:
+
+1. explicit `--rootfs DIR`;
+2. `ABOX_ROOTFS`;
+3. `/etc/abox/abox.conf`;
+4. `/var/lib/abox/images/default`.
+
+The selected path must exist and be a directory. Individual namespace flags
+such as `--uts` and `--pid` do not implicitly select a rootfs.
 
 Some integration tests require a delegated cgroup subtree and namespace capabilities. Tests that lack those prerequisites may report **skipped**, not passed; see [Testing](#testing).
 
@@ -255,6 +295,8 @@ src/
   process.hpp/.cpp one-shot execution, synchronization, exit status, stats
   cgroup.hpp/.cpp cgroup lifecycle, resource controls, metric parsing
   namespace.hpp/.cpp namespace setup, UID/GID mapping, outer PID supervisor
+  config.hpp/.cpp rootfs configuration and precedence rules
+  setup.hpp/.cpp  explicit rootfs provisioning and prerequisite checks
   daemon.cpp       Unix socket server, named state, workload lifecycle
 
 tests/
@@ -445,9 +487,13 @@ Inspect registered tests and labels:
 ctest --test-dir build -N
 ctest --test-dir build -L phase3 --output-on-failure
 ctest --test-dir build -L phase4 --output-on-failure
+ctest --test-dir build -L phaseA --output-on-failure
+ctest --test-dir build -L phaseB --output-on-failure
+ctest --test-dir build -L phaseC --output-on-failure
+ctest --test-dir build -L phaseD --output-on-failure
 ```
 
-Current test programs cover statistics parsing, a namespace supervisor check, CLI behavior, namespace integration checks, and daemon lifecycle behavior. Namespace tests are labeled `requires_privileges`; the daemon integration test may also skip the workload-lifecycle portion if `ABOX_CGROUP_BASE` is not provided. CTest uses **exit code 77** for supported skips.
+Current test programs cover statistics parsing, a namespace supervisor check, CLI behavior, rootfs configuration precedence, setup safety, staged installation, DEB metadata/content, namespace integration checks, and daemon lifecycle behavior. Namespace tests are labeled `requires_privileges`; the daemon integration test may also skip the workload-lifecycle portion if `ABOX_CGROUP_BASE` is not provided. CTest uses **exit code 77** for supported skips.
 
 The larger test inventory in [`tests/ACCEPTANCE_TESTS.md`](tests/ACCEPTANCE_TESTS.md) is an **acceptance specification**, not proof that every scenario has already been automated or passed. In particular, test results from one Linux/WSL environment do not establish security guarantees on every host.
 
@@ -464,6 +510,8 @@ ABox is a systems-learning project with working kernel-facing components, but se
 7. **PID 1 is currently the workload.** The outer supervisor is not a namespace-local init; signal and orphan reaping semantics need explicit handling before calling PID isolation robust.
 8. **No persistent storage backend.** The daemon persists metadata, not per-sandbox filesystem images, storage quotas, or copy-on-write layers.
 9. **No live metrics service or TUI.** The implemented stats path is a post-execution summary for one-shot workloads.
+10. **Setup is deliberately explicit.** It does not create cgroup delegation, enable controllers, install packages, or provision a rootfs unless the user invokes the non-dry-run setup command.
+11. **Packaging is not a security boundary.** A shared default rootfs has no per-sandbox writable storage, copy-on-write layer, or storage quota.
 
 These limitations are tracked deliberately: avoiding false isolation guarantees is part of building a reliable runtime.
 
@@ -472,6 +520,7 @@ These limitations are tracked deliberately: avoiding false isolation guarantees 
 - **Phase 0–2:** C++ CLI, process execution, cgroups v2 limits, and end-of-run statistics — implemented.
 - **Phase 3:** UTS, PID, mount, user, and IPC namespace plumbing, plus experimental rootfs support — implemented as an initial one-shot execution path; further validation/hardening required.
 - **Phase 4:** Unix-socket daemon, named workloads, basic state and lifecycle — initial implementation complete; lifecycle and namespace integration require follow-up.
+- **Installation/configuration:** standard CMake installation, rootfs precedence, explicit setup diagnostics, and DEB/TGZ packaging — implemented; provisioning remains an explicit privileged operation.
 - **Phase 5:** Persistent per-sandbox storage, filesystem capacity limits, and optionally OverlayFS/copy-on-write.
 - **Phase 6:** Continuous CPU/memory/I/O telemetry and per-sandbox sampling.
 - **Phase 7:** An interactive terminal dashboard for sandbox inspection.

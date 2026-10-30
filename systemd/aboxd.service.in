@@ -1,0 +1,16 @@
+[Unit]
+Description=ABox sandbox lifecycle daemon
+After=local-fs.target
+
+[Service]
+Type=simple
+User=abox
+Group=abox
+StateDirectory=abox
+RuntimeDirectory=abox
+ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/aboxd --state /var/lib/abox/state --socket /run/abox/aboxd.sock
+Restart=on-failure
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
