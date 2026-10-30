@@ -1,4 +1,5 @@
 #include "process.hpp"
+#include "namespace.hpp"
 
 #include <cerrno>
 #include <chrono>
@@ -76,7 +77,7 @@ namespace abox::process
     } // namespace
 
     int handleRun(char *const args[], const abox::cgroup::ResourceLimits &limits,
-                  bool show_stats)
+                  bool show_stats, const abox::isolation::NamespaceConfig &namespaces)
     {
         if (!args || !args[0])
         {
@@ -101,12 +102,30 @@ namespace abox::process
             return 1;
         }
 
+        int user_request[2] = {-1, -1};
+        int user_response[2] = {-1, -1};
+        if (namespaces.user &&
+            (::pipe(user_request) == -1 || ::pipe(user_response) == -1))
+        {
+            std::perror("abox: user namespace pipe");
+            ::close(ready[0]);
+            ::close(ready[1]);
+            if (user_request[0] != -1) ::close(user_request[0]);
+            if (user_request[1] != -1) ::close(user_request[1]);
+            if (user_response[0] != -1) ::close(user_response[0]);
+            if (user_response[1] != -1) ::close(user_response[1]);
+            group.remove();
+            return 1;
+        }
+
         const pid_t pid = ::fork();
         if (pid == -1)
         {
             std::perror("abox: fork");
             ::close(ready[0]);
             ::close(ready[1]);
+            if (user_request[0] != -1) { ::close(user_request[0]); ::close(user_request[1]); }
+            if (user_response[0] != -1) { ::close(user_response[0]); ::close(user_response[1]); }
             group.remove();
             return 1;
         }
@@ -114,6 +133,8 @@ namespace abox::process
         if (pid == 0)
         {
             ::close(ready[1]);
+            if (user_request[0] != -1) ::close(user_request[0]);
+            if (user_response[1] != -1) ::close(user_response[1]);
             char signal = 0;
             ssize_t count;
             do
@@ -125,6 +146,14 @@ namespace abox::process
             if (count != 1 || signal != 'R')
                 ::_exit(125);
 
+            if (abox::isolation::setupChild(namespaces, user_request[1], user_response[0]) != 0)
+            {
+                _exit(125);
+            }
+            if (user_request[1] != -1) ::close(user_request[1]);
+            if (user_response[0] != -1) ::close(user_response[0]);
+            if (namespaces.pid)
+                ::_exit(abox::isolation::supervise(args));
             ::execvp(args[0], args);
             const int saved_errno = errno;
             std::perror("abox: execvp");
@@ -132,9 +161,13 @@ namespace abox::process
         }
 
         ::close(ready[0]);
+        if (user_request[1] != -1) ::close(user_request[1]);
+        if (user_response[0] != -1) ::close(user_response[0]);
         if (!group.attachProcess(pid))
         {
             ::close(ready[1]); // Child sees EOF and exits without executing.
+            if (user_request[0] != -1) ::close(user_request[0]);
+            if (user_response[1] != -1) ::close(user_response[1]);
             int ignored = 0;
             waitForChild(pid, ignored);
             group.remove();
@@ -155,10 +188,57 @@ namespace abox::process
             return 1;
         }
 
+        if (namespaces.user)
+        {
+            char request = 0;
+            const ssize_t received = ::read(user_request[0], &request, 1);
+            if (received != 1 || request != 'U')
+            {
+                std::cerr << "abox: user namespace handshake failed (read=" << received
+                          << ", request=" << static_cast<int>(request)
+                          << ", errno=" << errno << ")\n";
+                ::close(user_request[0]);
+                ::close(user_response[1]);
+                ::kill(pid, SIGKILL);
+                int ignored = 0;
+                waitForChild(pid, ignored);
+                group.remove();
+                return 1;
+            }
+            if (!abox::isolation::configureUserMapping(pid, ::getuid(), ::getgid()))
+            {
+                std::cerr << "abox: cannot configure user namespace mapping\n";
+                ::close(user_request[0]);
+                ::close(user_response[1]);
+                ::kill(pid, SIGKILL);
+                int ignored = 0;
+                waitForChild(pid, ignored);
+                group.remove();
+                return 1;
+            }
+            const char mapped = 'M';
+            if (::write(user_response[1], &mapped, 1) != 1)
+            {
+                std::perror("abox: user namespace response");
+                ::close(user_request[0]);
+                ::close(user_response[1]);
+                ::kill(pid, SIGKILL);
+                int ignored = 0;
+                waitForChild(pid, ignored);
+                group.remove();
+                return 1;
+            }
+            ::close(user_request[0]);
+            ::close(user_response[1]);
+        }
+
         int status = 0;
         if (!waitForChild(pid, status))
             return 1;
         const auto end = std::chrono::steady_clock::now();
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 125)
+            std::cerr << "abox: child namespace setup or supervision failed\n";
 
         int exit_code = 1;
         if (WIFEXITED(status))

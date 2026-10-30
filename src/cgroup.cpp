@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <fcntl.h>
 #include <fstream>
 #include <iostream>
@@ -68,7 +69,15 @@ namespace abox::cgroup
     } // namespace
 
     CgroupManager::CgroupManager(std::string name, std::string base_path)
-        : path_(std::move(base_path) + "/" + std::move(name)) {}
+    {
+        if (base_path == "/sys/fs/cgroup/abox")
+        {
+            if (const char *override_path = std::getenv("ABOX_CGROUP_BASE");
+                override_path && *override_path)
+                base_path = override_path;
+        }
+        path_ = std::move(base_path) + "/" + std::move(name);
+    }
 
     bool CgroupManager::create()
     {
