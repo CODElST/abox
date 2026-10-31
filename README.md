@@ -110,44 +110,97 @@ Confirm that the CLI works:
 
 ## Installation and setup
 
-Install using standard CMake prefix rules:
+### Install via Cloudsmith (Ubuntu / Debian)
+
+ABox is distributed as a Debian package. First, **configure the public ABox
+Cloudsmith APT repository** on your machine:
+
+1. Open the ABox repository in [Cloudsmith](https://cloudsmith.io/).
+2. Select **Set Me Up** (or the Debian **Pull / Install** instructions).
+3. Follow the repository's generated **Debian/Ubuntu APT setup** instructions,
+   which install the repository configuration and signing key.
+
+> The Cloudsmith workspace/repository URL is not yet recorded in this README.
+> Use the **repository-specific setup command** from Cloudsmith rather than
+> substituting an unverified address.
+
+After the repository has been added, install **ABox v0.1.0**:
 
 ```bash
-cmake -S . -B build-release \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX=/usr
-cmake --build build-release -j
-DESTDIR="$PWD/stage" cmake --install build-release
+sudo apt-get update
+sudo apt-get install abox=0.1.0
 ```
 
-For Debian and TGZ packages, see [PACKAGING.md](PACKAGING.md). Packages
-install `abox`, `aboxd`, a configuration template, and documentation. They do
-not contain a root filesystem or run setup operations.
+Verify the installation:
 
-After reviewing the plan, provision the default Ubuntu rootfs explicitly:
+```bash
+abox --version
+command -v abox
+command -v aboxd
+```
+
+If APT cannot find version `0.1.0`, check whether the repository is configured
+for your Ubuntu/Debian release and architecture, and inspect the available
+package versions:
+
+```bash
+apt-cache policy abox
+```
+
+To provision the default Ubuntu sandbox root filesystem, explicitly run:
 
 ```bash
 sudo abox setup --dry-run
 sudo abox setup
 ```
 
-Setup is idempotent and preserves an existing valid rootfs. It refuses to
-overwrite an existing non-empty incomplete rootfs. Use `--rootfs DIR` to
-select another target. Provisioning requires Ubuntu, `debootstrap`, cgroup v2,
-network access as needed by debootstrap, and root privileges. Setup does not
-modify systemd-owned cgroups or enable/start a systemd service.
+Package installation alone does **not** grant namespace permissions or
+configure cgroup delegation; see [Requirements](#requirements) before running
+isolated workloads.
 
-When `--isolate` is used without `--rootfs`, rootfs resolution is:
+### Build and install from source
 
-1. explicit `--rootfs DIR`;
-2. `ABOX_ROOTFS`;
+```bash
+cmake -S . -B build-release \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr
+cmake --build build-release -j
+```
+
+To inspect the installation layout without changing the host:
+
+```bash
+DESTDIR="$PWD/stage" cmake --install build-release
+```
+
+To install the binaries and packaged configuration onto the host instead:
+
+```bash
+sudo cmake --install build-release
+```
+
+ABox also supports CPack-generated Debian and TGZ packages. These packages
+install the ABox binaries and supporting files, **not** a complete root
+filesystem. Setup is a separate, explicit operation; it preserves an existing
+valid rootfs and refuses to overwrite an existing non-empty incomplete one.
+Provisioning requires supported Ubuntu tooling (including `debootstrap`),
+network access if required, and appropriate permissions.
+
+### Default rootfs selection
+
+When `--isolate` is used, ABox resolves the rootfs in this order:
+
+1. Explicit `--rootfs DIR`;
+2. `ABOX_ROOTFS` environment variable;
 3. `/etc/abox/abox.conf`;
 4. `/var/lib/abox/images/default`.
 
-The selected path must exist and be a directory. Individual namespace flags
-such as `--uts` and `--pid` do not implicitly select a rootfs.
+The selected path must exist and be a directory. Individual namespace flags,
+such as `--uts` or `--pid`, do not implicitly select a rootfs.
 
-Some integration tests require a delegated cgroup subtree and namespace capabilities. Tests that lack those prerequisites may report **skipped**, not passed; see [Testing](#testing).
+Some integration tests require a delegated cgroup subtree and namespace
+capabilities. Tests lacking those prerequisites may report **skipped**, not
+passed; see [Testing](#testing).
 
 ## Quick start: one-shot execution
 
