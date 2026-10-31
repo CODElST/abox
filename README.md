@@ -115,14 +115,22 @@ Confirm that the CLI works:
 ABox is distributed as a Debian package. First, **configure the public ABox
 Cloudsmith APT repository** on your machine:
 
-1. Open the ABox repository in [Cloudsmith](https://cloudsmith.io/).
-2. Select **Set Me Up** (or the Debian **Pull / Install** instructions).
-3. Follow the repository's generated **Debian/Ubuntu APT setup** instructions,
-   which install the repository configuration and signing key.
+**No Cloudsmith account or login is required to install ABox from a public
+repository.** First, add the ABox APT repository and its signing key once.
+Review the setup script before running it with elevated privileges:
 
-> The Cloudsmith workspace/repository URL is not yet recorded in this README.
-> Use the **repository-specific setup command** from Cloudsmith rather than
-> substituting an unverified address.
+```bash
+curl -fsSL \
+  'https://dl.cloudsmith.io/public/abox/abox/cfg/setup/bash.deb.sh' \
+  -o /tmp/abox-cloudsmith-setup.sh
+less /tmp/abox-cloudsmith-setup.sh
+sudo bash /tmp/abox-cloudsmith-setup.sh
+```
+
+This uses Cloudsmith's documented public Debian repository setup URL pattern
+for the `abox/abox` workspace and repository. The repository must be set to
+**public** in Cloudsmith for anonymous installation to work. [ABox v0.1.0 package
+page](https://app.cloudsmith.com/abox/r/abox/deb/abox/0.1.0/x86beL0FPP7q).
 
 After the repository has been added, install **ABox v0.1.0**:
 
